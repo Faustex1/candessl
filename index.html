@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>¿Con quién limita? — Provincias Argentinas</title>
+<style>
+  :root{
+    --bg:#0f172a; --card:#1e293b; --chip:#334155; --accent:#38bdf8; --accent2:#facc15;
+    --text:#f1f5f9; --muted:#94a3b8; --good:#22c55e; --bad:#ef4444;
+    box-sizing:border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]){
+      --bg:#f8fafc; --card:#ffffff; --text:#0f172a; --muted:#475569; --chip:#e2e8f0;
+    }
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    display:flex; flex-direction:column; align-items:center;
+    padding:20px 14px 32px;
+  }
+  h1{font-size:1.2rem; text-align:center; margin:6px 0 4px;}
+  .sub{color:var(--muted); font-size:0.82rem; text-align:center; margin-bottom:16px; max-width:480px;}
+  .card{
+    background:var(--card); border-radius:16px; padding:20px;
+    width:100%; max-width:480px; box-shadow:0 4px 20px rgba(0,0,0,.15);
+  }
+  .score-row{display:flex; justify-content:space-between; font-size:0.82rem; color:var(--muted); margin-bottom:10px;}
+  .question{font-size:1.1rem; font-weight:700; text-align:center; margin:6px 0 4px;}
+  .question .hl{color:var(--accent2);}
+  .hint{text-align:center; color:var(--muted); font-size:0.8rem; margin-bottom:14px;}
+  .chips{display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-bottom:16px;}
+  .chip{
+    padding:9px 13px; border-radius:999px; border:2px solid transparent; background:var(--chip);
+    color:var(--text); font-size:0.85rem; cursor:pointer; user-select:none; transition:.12s;
+  }
+  .chip.selected{border-color:var(--accent); background:#0369a1; color:#fff;}
+  .chip.correct{border-color:var(--good); background:rgba(34,197,94,.22);}
+  .chip.missed{border-color:var(--accent2); background:rgba(250,204,21,.18);}
+  .chip.wrong{border-color:var(--bad); background:rgba(239,68,68,.18);}
+  .chip:disabled, .chip.locked{cursor:default;}
+  .verify-btn{
+    width:100%; padding:12px; border:none; border-radius:10px;
+    background:var(--accent); color:#0f172a; font-weight:700; font-size:0.95rem; cursor:pointer;
+  }
+  .next-btn{
+    margin-top:12px; width:100%; padding:12px; border:none; border-radius:10px;
+    background:var(--accent2); color:#0f172a; font-weight:700; font-size:0.95rem; cursor:pointer;
+    display:none;
+  }
+  .result{text-align:center; font-size:0.9rem; margin-top:14px; line-height:1.5; display:none;}
+  .result .count{font-weight:700; color:var(--accent2);}
+  .legend{display:flex; gap:14px; justify-content:center; font-size:0.72rem; color:var(--muted); margin-top:10px; flex-wrap:wrap; display:none;}
+  .legend span{display:flex; align-items:center; gap:4px;}
+  .dot{width:10px; height:10px; border-radius:50%; display:inline-block;}
+  footer{color:var(--muted); font-size:0.75rem; margin-top:18px; text-align:center;}
+</style>
+</head>
+<body>
+  <h1>🇦🇷 ¿Con quién limita?</h1>
+  <div class="sub">Elegí todas las provincias que creas que son limítrofes. Después tocá "Verificar".</div>
+
+  <div class="card">
+    <div class="score-row">
+      <span id="score">Puntaje: 0 / 0</span>
+      <span id="streak">Racha: 0</span>
+    </div>
+
+    <div class="question" id="question">Cargando...</div>
+    <div class="hint" id="hint"></div>
+
+    <div class="chips" id="chips"></div>
+
+    <button class="verify-btn" id="verifyBtn">Verificar ✓</button>
+    <button class="next-btn" id="nextBtn">Siguiente ➜</button>
+
+    <div class="result" id="result"></div>
+    <div class="legend" id="legend">
+      <span><span class="dot" style="background:var(--good)"></span> Correcta y elegida</span>
+      <span><span class="dot" style="background:var(--accent2)"></span> Correcta, no elegida</span>
+      <span><span class="dot" style="background:var(--bad)"></span> Elegida por error</span>
+    </div>
+  </div>
+
+  <footer>24 jurisdicciones (23 provincias + CABA) · límites entre sí</footer>
+
+<script>
+// Adyacencias entre provincias argentinas (solo límites entre jurisdicciones, no países ni océano)
+const BORDERS = {
+  "Buenos Aires": ["CABA","Santa Fe","Córdoba","La Pampa","Río Negro","Entre Ríos"],
+  "CABA": ["Buenos Aires"],
+  "Catamarca": ["Salta","Tucumán","Santiago del Estero","Córdoba","La Rioja"],
+  "Chaco": ["Formosa","Salta","Santiago del Estero","Santa Fe","Corrientes"],
+  "Chubut": ["Río Negro","Santa Cruz"],
+  "Córdoba": ["La Rioja","Catamarca","Santiago del Estero","Santa Fe","Buenos Aires","La Pampa","San Luis"],
+  "Corrientes": ["Chaco","Santa Fe","Entre Ríos","Misiones"],
+  "Entre Ríos": ["Santa Fe","Corrientes","Buenos Aires"],
+  "Formosa": ["Chaco","Salta"],
+  "Jujuy": ["Salta"],
+  "La Pampa": ["San Luis","Córdoba","Buenos Aires","Río Negro","Mendoza","Neuquén"],
+  "La Rioja": ["Catamarca","Córdoba","San Luis","San Juan"],
+  "Mendoza": ["San Juan","San Luis","La Pampa","Neuquén"],
+  "Misiones": ["Corrientes"],
+  "Neuquén": ["Mendoza","La Pampa","Río Negro"],
+  "Río Negro": ["La Pampa","Buenos Aires","Neuquén","Chubut"],
+  "Salta": ["Jujuy","Formosa","Chaco","Santiago del Estero","Tucumán","Catamarca"],
+  "San Juan": ["La Rioja","San Luis","Mendoza"],
+  "San Luis": ["San Juan","La Rioja","Córdoba","La Pampa","Mendoza"],
+  "Santa Cruz": ["Chubut"],
+  "Santa Fe": ["Chaco","Santiago del Estero","Córdoba","Buenos Aires","Entre Ríos","Corrientes"],
+  "Santiago del Estero": ["Salta","Chaco","Santa Fe","Córdoba","Catamarca","Tucumán"],
+  "Tierra del Fuego": [],
+  "Tucumán": ["Catamarca","Santiago del Estero","Salta"]
+};
+const ALL = Object.keys(BORDERS);
+
+let current = null;
+let correctSet = new Set();
+let selected = new Set();
+let locked = false;
+let correctCount = 0, totalCount = 0, streak = 0;
+
+const questionEl = document.getElementById("question");
+const hintEl = document.getElementById("hint");
+const chipsEl = document.getElementById("chips");
+const verifyBtn = document.getElementById("verifyBtn");
+const nextBtn = document.getElementById("nextBtn");
+const resultEl = document.getElementById("result");
+const legendEl = document.getElementById("legend");
+const scoreEl = document.getElementById("score");
+const streakEl = document.getElementById("streak");
+
+function shuffle(arr){
+  const a = arr.slice();
+  for(let i=a.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [a[i],a[j]] = [a[j],a[i]];
+  }
+  return a;
+}
+
+function newQuestion(){
+  locked = false;
+  selected = new Set();
+  verifyBtn.style.display = "block";
+  verifyBtn.disabled = false;
+  nextBtn.style.display = "none";
+  resultEl.style.display = "none";
+  legendEl.style.display = "none";
+
+  current = ALL[Math.floor(Math.random()*ALL.length)];
+  correctSet = new Set(BORDERS[current]);
+
+  questionEl.innerHTML = `¿Con cuántas y cuáles provincias limita <span class="hl">${current}</span>?`;
+  hintEl.textContent = "Tocá todas las que consideres correctas";
+
+  // Build candidate pool: all correct + distractors, up to ~9-10 chips
+  const others = ALL.filter(p => p !== current && !correctSet.has(p));
+  const shuffledOthers = shuffle(others);
+  const targetTotal = Math.min(ALL.length - 1, Math.max(8, correctSet.size + 4));
+  const numDistractors = Math.max(0, targetTotal - correctSet.size);
+  const distractors = shuffledOthers.slice(0, numDistractors);
+  const candidates = shuffle([...correctSet, ...distractors]);
+
+  chipsEl.innerHTML = "";
+  candidates.forEach(p=>{
+    const btn = document.createElement("button");
+    btn.className = "chip";
+    btn.textContent = p;
+    btn.addEventListener("click", ()=>{
+      if(locked) return;
+      if(selected.has(p)){ selected.delete(p); btn.classList.remove("selected"); }
+      else { selected.add(p); btn.classList.add("selected"); }
+    });
+    chipsEl.appendChild(btn);
+  });
+}
+
+verifyBtn.addEventListener("click", ()=>{
+  if(locked) return;
+  locked = true;
+  totalCount++;
+
+  const chipButtons = Array.from(chipsEl.children);
+  let allExact = selected.size === correctSet.size;
+  chipButtons.forEach(btn=>{
+    btn.classList.add("locked");
+    const p = btn.textContent;
+    const isCorrect = correctSet.has(p);
+    const wasSelected = selected.has(p);
+    if(isCorrect && wasSelected) btn.classList.add("correct");
+    else if(isCorrect && !wasSelected){ btn.classList.add("missed"); allExact = false; }
+    else if(!isCorrect && wasSelected){ btn.classList.add("wrong"); allExact = false; }
+    btn.classList.remove("selected");
+  });
+
+  if(allExact){
+    correctCount++; streak++;
+  } else {
+    streak = 0;
+  }
+
+  const list = [...correctSet].sort().join(", ") || "ninguna otra provincia";
+  const count = correctSet.size;
+  resultEl.innerHTML = allExact
+    ? `✅ ¡Exacto! <span class="count">${current}</span> limita con <span class="count">${count}</span> provincia${count===1?"":"s"}: ${list}.`
+    : `${count===0?"🤔":"❌"} <span class="count">${current}</span> limita con <span class="count">${count}</span> provincia${count===1?"":"s"}: ${list}.`;
+  resultEl.style.display = "block";
+  legendEl.style.display = "flex";
+
+  updateScore();
+  verifyBtn.style.display = "none";
+  nextBtn.style.display = "block";
+});
+
+nextBtn.addEventListener("click", newQuestion);
+
+function updateScore(){
+  scoreEl.textContent = `Puntaje: ${correctCount} / ${totalCount}`;
+  streakEl.textContent = `Racha: ${streak}`;
+}
+
+newQuestion();
+</script>
+</body>
+</html>

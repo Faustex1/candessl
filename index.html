@@ -60,6 +60,15 @@
   .legend span{display:flex; align-items:center; gap:4px;}
   .dot{width:10px; height:10px; border-radius:50%; display:inline-block;}
   footer{color:var(--muted); font-size:0.75rem; margin-top:18px; text-align:center;}
+  .blank{
+    display:inline-block; width:150px; max-width:42vw; padding:3px 6px; margin:0 2px;
+    border:none; border-bottom:2px solid var(--muted); background:transparent; color:var(--text);
+    font-size:0.95rem; text-align:center; font-family:inherit;
+  }
+  .blank:focus{outline:none; border-bottom-color:var(--accent);}
+  .blank.ok{border-bottom-color:var(--good); color:var(--good);}
+  .blank.bad{border-bottom-color:var(--bad); color:var(--bad);}
+  .blank:disabled{opacity:0.9;}
 </style>
 </head>
 <body>
@@ -86,6 +95,23 @@
       <span><span class="dot" style="background:var(--accent2)"></span> Correcta, no elegida</span>
       <span><span class="dot" style="background:var(--bad)"></span> Elegida por error</span>
     </div>
+  </div>
+
+  <h1 style="margin-top:28px;">✏️ Completá la oración</h1>
+  <div class="sub">Un grupo viaja por Argentina. Completá con las provincias que atraviesan, la capital de llegada y los países limítrofes.</div>
+
+  <div class="card">
+    <div class="score-row">
+      <span id="score2">Puntaje: 0 / 0</span>
+      <span id="streak2">Racha: 0</span>
+    </div>
+
+    <div class="story" id="story" style="font-size:0.95rem; line-height:1.7; margin-bottom:14px;"></div>
+
+    <button class="verify-btn" id="verifyBtn2">Verificar ✓</button>
+    <button class="next-btn" id="nextBtn2">Siguiente ➜</button>
+
+    <div class="result" id="result2"></div>
   </div>
 
   <footer>24 jurisdicciones (23 provincias + CABA) · límites entre sí</footer>
@@ -227,6 +253,187 @@ function updateScore(){
 }
 
 newQuestion();
+</script>
+
+<script>
+// ---------- Sección 2: Completá la oración ----------
+const CAPITALS = {
+  "Buenos Aires":"La Plata", "Catamarca":"San Fernando del Valle de Catamarca",
+  "Chaco":"Resistencia", "Chubut":"Rawson", "Córdoba":"Córdoba", "Corrientes":"Corrientes",
+  "Entre Ríos":"Paraná", "Formosa":"Formosa", "Jujuy":"San Salvador de Jujuy",
+  "La Pampa":"Santa Rosa", "La Rioja":"La Rioja", "Mendoza":"Mendoza", "Misiones":"Posadas",
+  "Neuquén":"Neuquén", "Río Negro":"Viedma", "Salta":"Salta", "San Juan":"San Juan",
+  "San Luis":"San Luis", "Santa Cruz":"Río Gallegos", "Santa Fe":"Santa Fe",
+  "Santiago del Estero":"Santiago del Estero", "Tierra del Fuego":"Ushuaia", "Tucumán":"San Miguel de Tucumán"
+};
+// Provincias con límites internacionales bien establecidos, para no arriesgar datos dudosos
+const SAFE_COUNTRY = {
+  "Misiones": ["Brasil","Paraguay"],
+  "Jujuy": ["Bolivia","Chile"],
+  "Entre Ríos": ["Uruguay"],
+  "Tierra del Fuego": ["Chile"],
+  "Santa Cruz": ["Chile"],
+  "Formosa": ["Paraguay"]
+};
+const ROUTE_PROVINCES = ALL.filter(p => p !== "CABA");
+
+function norm(s){
+  return s.toString().trim().toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .replace(/^(ciudad de |san |santa )/,"$1") // keep prefixes intact, just for safety
+    .replace(/\s+/g," ");
+}
+
+function bfsPath(start, end){
+  const queue = [[start]];
+  const seen = new Set([start]);
+  while(queue.length){
+    const path = queue.shift();
+    const last = path[path.length-1];
+    if(last === end) return path;
+    for(const nb of (BORDERS[last]||[])){
+      if(nb === "CABA") continue;
+      if(!seen.has(nb)){
+        seen.add(nb);
+        queue.push([...path, nb]);
+      }
+    }
+  }
+  return null;
+}
+
+let story = { start:null, end:null, path:null, blanksCount:0, countries:[] };
+let locked2 = false;
+let correct2 = 0, total2 = 0, streak2 = 0;
+
+const storyEl = document.getElementById("story");
+const verifyBtn2 = document.getElementById("verifyBtn2");
+const nextBtn2 = document.getElementById("nextBtn2");
+const result2El = document.getElementById("result2");
+const score2El = document.getElementById("score2");
+const streak2El = document.getElementById("streak2");
+
+function newStory(){
+  locked2 = false;
+  result2El.style.display = "none";
+  verifyBtn2.style.display = "block";
+  nextBtn2.style.display = "none";
+
+  const countryKeys = Object.keys(SAFE_COUNTRY);
+  let start, end, path;
+  let attempts = 0;
+  do{
+    end = countryKeys[Math.floor(Math.random()*countryKeys.length)];
+    const pool = ROUTE_PROVINCES.filter(p => p !== end);
+    start = pool[Math.floor(Math.random()*pool.length)];
+    path = bfsPath(start, end);
+    attempts++;
+  } while((!path || path.length < 3 || path.length > 5) && attempts < 60);
+
+  if(!path){ start = "Córdoba"; end = "Misiones"; path = bfsPath(start,end); }
+
+  story.start = start; story.end = end; story.path = path;
+  story.blanksCount = path.length - 2;
+  story.countries = SAFE_COUNTRY[end];
+
+  const startCap = CAPITALS[start], endCap = CAPITALS[end];
+
+  let routeBlanks = "";
+  for(let i=0;i<story.blanksCount;i++){
+    routeBlanks += `<input type="text" class="blank" id="rb${i}" placeholder="provincia ${i+1}">`;
+    if(i < story.blanksCount-1) routeBlanks += ", ";
+  }
+  const routeText = story.blanksCount === 0
+    ? `<b>${start}</b> y <b>${end}</b> son vecinas directas: no atraviesan ninguna otra provincia.`
+    : `Salen de <b>${startCap}</b> (${start}) y viajan en línea recta hasta <b>${endCap}</b>, capital de <b>${end}</b>. En el medio atraviesan estas provincias: ${routeBlanks}.`;
+
+  const capText = `La capital de <b>${end}</b> se llama <input type="text" class="blank" id="capBlank" placeholder="capital">.`;
+
+  const countryBlanks = story.countries.map((_,i)=>
+    `<input type="text" class="blank" id="cb${i}" placeholder="país ${i+1}" style="width:110px;">`
+  ).join(story.countries.length>1 ? " y " : "");
+  const countryText = `Al llegar, descubren que la provincia de <b>${end}</b> limita con ${story.countries.length>1?"los países":"el país"}: ${countryBlanks}.`;
+
+  storyEl.innerHTML = `<p>${routeText}</p><p>${capText}</p><p>${countryText}</p>`;
+}
+
+function checkChain(seqNames){
+  // seqNames: array of intermediate province names typed by the user
+  const full = [story.start, ...seqNames, story.end];
+  for(let i=0;i<full.length;i++){
+    const canonical = ROUTE_PROVINCES.find(p => norm(p) === norm(full[i]));
+    if(!canonical) return false;
+    full[i] = canonical;
+  }
+  const seen = new Set();
+  for(let i=0;i<full.length;i++){
+    if(seen.has(full[i])) return false;
+    seen.add(full[i]);
+  }
+  for(let i=0;i<full.length-1;i++){
+    if(!(BORDERS[full[i]]||[]).includes(full[i+1])) return false;
+  }
+  return true;
+}
+
+verifyBtn2.addEventListener("click", ()=>{
+  if(locked2) return;
+  locked2 = true;
+  total2++;
+  let allOk = true;
+
+  // Ruta
+  if(story.blanksCount > 0){
+    const seq = [];
+    for(let i=0;i<story.blanksCount;i++){
+      const el = document.getElementById(`rb${i}`);
+      seq.push(el.value);
+      el.disabled = true;
+    }
+    const chainOk = checkChain(seq);
+    for(let i=0;i<story.blanksCount;i++){
+      document.getElementById(`rb${i}`).classList.add(chainOk ? "ok" : "bad");
+    }
+    if(!chainOk) allOk = false;
+  }
+
+  // Capital
+  const capEl = document.getElementById("capBlank");
+  const capOk = norm(capEl.value) === norm(CAPITALS[story.end]);
+  capEl.classList.add(capOk ? "ok" : "bad");
+  capEl.disabled = true;
+  if(!capOk) allOk = false;
+
+  // Países
+  const typedCountries = story.countries.map((_,i)=>{
+    const el = document.getElementById(`cb${i}`);
+    el.disabled = true;
+    return el;
+  });
+  const typedNorm = typedCountries.map(el => norm(el.value));
+  const expectedNorm = story.countries.map(norm);
+  const countriesOk = expectedNorm.every(c => typedNorm.includes(c)) && typedNorm.length === expectedNorm.length;
+  typedCountries.forEach(el => el.classList.add(countriesOk ? "ok" : "bad"));
+  if(!countriesOk) allOk = false;
+
+  if(allOk){ correct2++; streak2++; } else { streak2 = 0; }
+
+  const routeAnswer = story.blanksCount > 0 ? story.path.slice(1,-1).join(", ") : "(vecinas directas)";
+  result2El.innerHTML = `${allOk ? "✅ ¡Todo correcto!" : "❌ Alguna respuesta no era correcta."}<br>
+    Una ruta válida: ${story.start} → ${routeAnswer}${story.blanksCount>0?" → ":""}${story.end}.<br>
+    Capital de ${story.end}: <b>${CAPITALS[story.end]}</b>. Países limítrofes: <b>${story.countries.join(" y ")}</b>.`;
+  result2El.style.display = "block";
+
+  score2El.textContent = `Puntaje: ${correct2} / ${total2}`;
+  streak2El.textContent = `Racha: ${streak2}`;
+
+  verifyBtn2.style.display = "none";
+  nextBtn2.style.display = "block";
+});
+
+nextBtn2.addEventListener("click", newStory);
+
+newStory();
 </script>
 </body>
 </html>
